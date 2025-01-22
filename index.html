@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>휘매쓰 연산 챌린지!</title>
+<title>분수의 덧셈</title>
 <style>
     body {
         margin: 0; 
@@ -31,14 +31,45 @@
         box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
 
-    .difficulty-selection {
-        display: block;
+    /* 시작 화면 */
+    .start-screen {
+        display: none;
+        text-align: center;
     }
+    .start-screen input {
+        padding: 10px; 
+        font-size: 16px;
+        margin-bottom: 10px;
+    }
+    .start-screen button {
+        padding: 10px 20px; 
+        font-size: 16px; 
+        cursor: pointer;
+        border: none; 
+        border-radius: 5px;
+    }
+
+    .difficulty-selection {
+        display: none;
+        text-align: center;
+    }
+    .difficulty-selection button {
+        margin: 5px; 
+        padding: 10px 20px; 
+        font-size: 16px; 
+        cursor: pointer;
+        border: none; 
+        border-radius: 5px;
+    }
+    .difficulty-selection button:hover {
+        background: #ddd;
+    }
+
     .game-screen, .result-screen {
         display: none;
     }
 
-    .difficulty-selection button, .game-screen button, .result-screen button {
+    .game-screen button, .result-screen button {
         margin: 5px; 
         padding: 10px 20px; 
         font-size: 16px; 
@@ -47,7 +78,7 @@
         border-radius: 5px;
     }
 
-    .difficulty-selection button:hover, .game-screen button:hover, .result-screen button:hover {
+    .game-screen button:hover, .result-screen button:hover {
         background: #ddd;
     }
 
@@ -219,12 +250,34 @@
     .reward-popup button:hover {
         background:#ccc;
     }
+
+    /* 결과 화면에서 서버 통신 결과 표시 */
+    #response {
+        margin-top: 10px;
+        white-space: pre-wrap;
+        font-size: 14px;
+        color: #333;
+        background: #f9f9f9;
+        padding: 10px;
+        border-radius: 5px;
+        min-height: 40px;
+    }
 </style>
 </head>
 <body>
-    <h1>휘매쓰 연산 챌린지!</h1>
+    <h1>분수의 덧셈</h1>
     <div class="container">
-        <div class="difficulty-selection">
+
+        <!-- 첫 화면: 이름 입력 -->
+        <div class="start-screen" id="start-screen">
+            <h2>게임을 시작하기 전에 이름을 입력해주세요</h2>
+            <input type="text" id="player-name" placeholder="이름을 입력하세요" />
+            <br/>
+            <button id="start-game-btn">시작하기</button>
+        </div>
+
+        <!-- 난이도 선택 화면 -->
+        <div class="difficulty-selection" id="difficulty-selection">
             <h2>난이도를 선택하세요</h2>
             <button data-difficulty="최상">최상(20초)</button>
             <button data-difficulty="상">상(30초)</button>
@@ -232,6 +285,7 @@
             <button data-difficulty="하">하(시간 제한 없음)</button>
         </div>
 
+        <!-- 게임 화면 -->
         <div class="game-screen">
             <div class="stats">
                 <div class="chance">남은 기회 : 3</div>
@@ -250,13 +304,18 @@
             <button id="submit-answer">확인</button>
         </div>
 
+        <!-- 결과 화면 -->
         <div class="result-screen">
             <h2>게임 종료</h2>
             <p>최종 점수: <span id="final-score">0</span></p>
             <button id="retry-btn">다시하기</button>
+            <!-- 점수 전송 버튼 및 서버 응답 표시 -->
+            <button id="send-score">점수 전송</button>
+            <div id="response"></div>
         </div>
     </div>
 
+    <!-- 오답 팝업 -->
     <div class="popup" id="solution-popup">
         <div class="popup-content">
             <h3>오답!</h3>
@@ -265,12 +324,81 @@
         </div>
     </div>
 
+    <!-- 보상 팝업 -->
     <div class="reward-popup" id="reward-popup">
         <p id="reward-message"></p>
         <button id="reward-close">닫기</button>
     </div>
 
     <script>
+    // 전역 변수
+    let playerName = "";
+    let currentDifficulty = null;
+    let timeLimitPerProblem = 0; 
+    let remainingChances = 3;
+    let score = 0;
+    let globalTime = 0;
+    let currentProblemIndex = 0;
+    let currentProblem = null;
+    let timerInterval = null;
+    let globalTimerInterval = null;
+    let timeLeft = 0; 
+    let gameOver = false;
+
+    // DOM 요소
+    const startScreen = document.getElementById('start-screen');
+    const playerNameInput = document.getElementById('player-name');
+    const startGameBtn = document.getElementById('start-game-btn');
+
+    const difficultySelection = document.getElementById('difficulty-selection');
+    const gameScreen = document.querySelector('.game-screen');
+    const resultScreen = document.querySelector('.result-screen');
+    const finalScoreSpan = document.getElementById('final-score');
+    const chanceDisplay = document.querySelector('.chance');
+    const scoreDisplay = document.querySelector('.score');
+    const globalTimeDisplay = document.querySelector('.global-time');
+    const problemDisplay = document.getElementById('problem-display');
+    const timerBarFill = document.querySelector('.timer-bar-fill');
+    const submitAnswerBtn = document.getElementById('submit-answer');
+    const solutionPopup = document.getElementById('solution-popup');
+    const solutionText = document.getElementById('solution-text');
+    const closeSolutionBtn = document.getElementById('close-solution');
+    const rewardPopup = document.getElementById('reward-popup');
+    const rewardMessage = document.getElementById('reward-message');
+    const rewardCloseBtn = document.getElementById('reward-close');
+    const retryBtn = document.getElementById('retry-btn');
+    const answerOptionsContainer = document.getElementById('answer-options');
+    const sendScoreBtn = document.getElementById('send-score');
+    const responseDiv = document.getElementById('response');
+
+    // 게임 시작 전, 이름 입력 화면 표시
+    // 초기 상태: startScreen만 보이도록
+    startScreen.style.display = 'block';
+
+    // "시작하기" 버튼 클릭 => 이름 저장, 난이도 선택화면으로 전환
+    startGameBtn.addEventListener('click', () => {
+        const nameValue = playerNameInput.value.trim();
+        if(!nameValue) {
+            alert("이름을 입력하세요!");
+            return;
+        }
+        playerName = nameValue;
+        startScreen.style.display = 'none';
+        difficultySelection.style.display = 'block';
+    });
+
+    // 난이도 선택 버튼
+    document.querySelectorAll('#difficulty-selection button').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+            currentDifficulty = btn.getAttribute('data-difficulty');
+            if(currentDifficulty === '최상') timeLimitPerProblem = 20;
+            else if(currentDifficulty === '상') timeLimitPerProblem = 30;
+            else if(currentDifficulty === '중') timeLimitPerProblem = 40;
+            else timeLimitPerProblem = 0; 
+            startGame();
+        });
+    });
+
     // 50문제 생성: 진분수 덧셈, 분모 동일, 결과를 대분수로 나타내는 문제
     function generateProblems(count) {
         const problems = [];
@@ -278,7 +406,7 @@
             let d = Math.floor(Math.random()*8)+2; // 2~9
             let n1 = Math.floor(Math.random()*(d-1))+1; //1~d-1
             let n2 = Math.floor(Math.random()*(d-1))+1; //1~d-1
-            let sum = n1+n2;
+            let sum = n1 + n2;
             let answerStr;
             if(sum === d) {
                 // 딱 1
@@ -308,48 +436,6 @@
 
     const problems = generateProblems(50);
 
-    let currentDifficulty = null;
-    let timeLimitPerProblem = 0; 
-    let remainingChances = 3;
-    let score = 0;
-    let globalTime = 0;
-    let currentProblemIndex = 0;
-    let currentProblem = null;
-    let timerInterval = null;
-    let globalTimerInterval = null;
-    let timeLeft = 0; 
-    let gameOver = false;
-
-    const difficultySelection = document.querySelector('.difficulty-selection');
-    const gameScreen = document.querySelector('.game-screen');
-    const resultScreen = document.querySelector('.result-screen');
-    const finalScoreSpan = document.getElementById('final-score');
-    const chanceDisplay = document.querySelector('.chance');
-    const scoreDisplay = document.querySelector('.score');
-    const globalTimeDisplay = document.querySelector('.global-time');
-    const problemDisplay = document.getElementById('problem-display');
-    const timerBarFill = document.querySelector('.timer-bar-fill');
-    const submitAnswerBtn = document.getElementById('submit-answer');
-    const solutionPopup = document.getElementById('solution-popup');
-    const solutionText = document.getElementById('solution-text');
-    const closeSolutionBtn = document.getElementById('close-solution');
-    const rewardPopup = document.getElementById('reward-popup');
-    const rewardMessage = document.getElementById('reward-message');
-    const rewardCloseBtn = document.getElementById('reward-close');
-    const retryBtn = document.getElementById('retry-btn');
-    const answerOptionsContainer = document.getElementById('answer-options');
-
-    document.querySelectorAll('.difficulty-selection button').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-            currentDifficulty = btn.getAttribute('data-difficulty');
-            if(currentDifficulty === '최상') timeLimitPerProblem = 20;
-            else if(currentDifficulty === '상') timeLimitPerProblem = 30;
-            else if(currentDifficulty === '중') timeLimitPerProblem = 40;
-            else timeLimitPerProblem = 0; 
-            startGame();
-        });
-    });
-
     function startGame(){
         difficultySelection.style.display = 'none';
         gameScreen.style.display = 'block';
@@ -361,6 +447,7 @@
         chanceDisplay.textContent = "남은 기회 : " + remainingChances;
         scoreDisplay.textContent = "점수 : " + score;
         globalTimeDisplay.textContent = "총 경과 시간 : " + globalTime+"초";
+
         globalTimerInterval = setInterval(()=>{
             globalTime++;
             globalTimeDisplay.textContent = "총 경과 시간 : " + globalTime+"초";
@@ -413,10 +500,10 @@
 
         // 오답 생성
         let distractors = new Set();
-        while(distractors.size<3){
+        while(distractors.size < 3){
             let diff = (Math.random()*2 -1); 
             let candidateVal = correctVal + diff;
-            if(candidateVal<=0) candidateVal = correctVal+ (Math.random()+0.5);
+            if(candidateVal<=0) candidateVal = correctVal + (Math.random()+0.5);
             let candAns = valToAnswer(candidateVal, p.d);
             if(candAns!==correct){
                 distractors.add(candAns);
@@ -433,7 +520,10 @@
             let radioId = "choice"+i;
             let option = document.createElement('div');
             option.className='answer-option';
-            option.innerHTML = `<input type="radio" name="answer" id="${radioId}" value="${ch}"><label for="${radioId}" style="margin-left:5px;">${choiceHTML}</label>`;
+            option.innerHTML = `
+                <input type="radio" name="answer" id="${radioId}" value="${ch}">
+                <label for="${radioId}" style="margin-left:5px;">${choiceHTML}</label>
+            `;
             answerOptionsContainer.appendChild(option);
         });
     }
@@ -482,7 +572,7 @@
 
     function showSolutionPopup(){
         let ans = currentProblem.answer;
-        solutionText.innerHTML = "정답: "+answerToHTML(ans);
+        solutionText.innerHTML = "정답: " + answerToHTML(ans);
         solutionPopup.style.display = 'flex';
     }
 
@@ -515,7 +605,7 @@
         gameOver = true;
         clearInterval(timerInterval);
         clearInterval(globalTimerInterval);
-        document.querySelector('.game-screen').style.display = 'none';
+        gameScreen.style.display = 'none';
         resultScreen.style.display = 'block';
         finalScoreSpan.textContent = score;
     }
@@ -565,7 +655,7 @@
             let parts = ans.split('과');
             let whole = parseInt(parts[0].trim());
             let fracPart = parts[1].trim();
-            let [a,b]=fracPart.split('/');
+            let [a,b] = fracPart.split('/');
             return whole + (parseInt(a)/parseInt(b));
         } else {
             // 진분수
@@ -591,6 +681,7 @@
         }
     }
 
+    // 정답 문자열 -> HTML 렌더링
     function answerToHTML(ans){
         ans=ans.trim();
         if(ans.includes('과')){
@@ -598,13 +689,69 @@
             let whole = parts[0].trim(); 
             let fracPart = parts[1].trim(); 
             let [fn, fd] = fracPart.split('/');
-            return `<span class="mixed-fraction"><span class="whole">${whole}</span><span class="frac-container"><span class="num">${fn}</span><span class="den">${fd}</span></span></span>`;
+            return `
+                <span class="mixed-fraction">
+                    <span class="whole">${whole}</span>
+                    <span class="frac-container">
+                        <span class="num">${fn}</span>
+                        <span class="den">${fd}</span>
+                    </span>
+                </span>`;
         } else if(ans.includes('/')){
             let [fn, fd] = ans.split('/');
-            return `<span class="fraction"><span class="num">${fn}</span><span class="den">${fd}</span></span>`;
+            return `
+                <span class="fraction">
+                    <span class="num">${fn}</span>
+                    <span class="den">${fd}</span>
+                </span>`;
         } else {
             // 정수
             return ans;
+        }
+    }
+
+    // ◆◆◆ 여기서부터 서버 전송 관련 코드 ◆◆◆
+    sendScoreBtn.addEventListener('click', () => {
+        // '분수의 덧셈'이라는 게임명, 플레이어 이름, 최종 점수, 경과 시간
+        saveData("분수의 덧셈", playerName, score, globalTime);
+    });
+
+    function saveData(game, name, score, elapsedTime) {
+        const FUNCTION_URL = "https://us-central1-record-f420d.cloudfunctions.net/report";
+
+        const requestData = {
+            game,
+            name,
+            score: parseInt(score, 10),
+            elapsedTime: parseInt(elapsedTime, 10)
+        };
+
+        // 사용자 요청 코드 그대로 삽입
+        try {
+            const response = fetch(FUNCTION_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            const responseData = response.then(r => r.json());
+
+            // fetch 자체는 promise를 반환하므로 아래와 같이 처리:
+            responseData.then(data => {
+                if (response && response.ok) {
+                    responseDiv.innerText = `성공: ${JSON.stringify(data, null, 2)}`;
+                } else {
+                    responseDiv.innerText = `오류: ${JSON.stringify(data, null, 2)}`;
+                }
+            })
+            .catch(err => {
+                responseDiv.innerText = `오류(데이터 파싱): ${err}`;
+            });
+        } catch (error) {
+            console.error('요청 실패:', error);
+            responseDiv.innerText = `네트워크 오류: ${error.message}`;
         }
     }
     </script>
